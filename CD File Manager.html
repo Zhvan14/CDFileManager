@@ -1,0 +1,352 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CD File Manager</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#64b5f6;--glass:rgba(255,255,255,0.04)}
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,#071024 0%, #081228 60%);color:#e6eef8}
+    .app{max-width:1100px;margin:24px auto;padding:18px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,0.7);}    
+    header{display:flex;align-items:center;gap:16px}
+    .logo{width:56px;height:56px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#7ee0a9);display:flex;align-items:center;justify-content:center;font-weight:700;color:#052634}
+    h1{margin:0;font-size:20px}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    .toolbar{display:flex;gap:8px;margin-top:14px;align-items:center}
+    button{background:var(--glass);border:1px solid rgba(255,255,255,0.04);color:inherit;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .search{margin-left:auto;display:flex;align-items:center;gap:8px}
+    input[type=text]{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:8px;border-radius:8px;color:inherit}.main{display:grid;grid-template-columns:260px 1fr;gap:14px;margin-top:18px}
+.sidebar{background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);padding:12px;border-radius:10px}
+.folder{padding:8px;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:10px;cursor:pointer}
+.folder:hover{background:rgba(255,255,255,0.02)}
+.content{background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);padding:12px;border-radius:10px;min-height:360px}
+.breadcrumbs{font-size:13px;color:var(--muted);margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.card{background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.02);min-height:110px;display:flex;flex-direction:column;justify-content:space-between}
+.card .name{font-weight:600}
+.meta{font-size:12px;color:var(--muted)}
+.dropzone{border:2px dashed rgba(255,255,255,0.03);padding:20px;border-radius:8px;text-align:center;color:var(--muted)}
+.footer{margin-top:12px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between}
+
+/* small screens */
+@media (max-width:700px){.main{grid-template-columns:1fr} .sidebar{order:2}}
+
+/* play overlay */
+.play-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(2,6,23,0.6),rgba(2,6,23,0.85));backdrop-filter:blur(3px);z-index:9999}
+.play-card{background:#061221;padding:22px;border-radius:12px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.6)}
+.play-card button{font-size:16px;padding:10px 18px}
+
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="logo">CD</div>
+      <div>
+        <h1>CD File Manager</h1>
+        <p class="lead">A simple in-browser file manager — virtual filesystem persisted in your browser.</p>
+      </div>
+    </header><div class="toolbar">
+  <button id="newFolder">New Folder</button>
+  <button id="uploadBtn">Upload File</button>
+  <button id="downloadAll">Download Zip</button>
+  <button id="diag">Run Diagnostics</button>
+
+  <div class="search">
+    <input type="text" id="search" placeholder="Search files..." />
+  </div>
+</div>
+
+<div class="main">
+  <aside class="sidebar">
+    <div style="font-weight:700;margin-bottom:8px">Folders</div>
+    <div id="folders"></div>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.02);margin:10px 0" />
+    <div style="font-weight:700;margin-bottom:8px">Quick Actions</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button id="clearAll">Clear All</button>
+      <button id="importJson">Import JSON</button>
+      <button id="exportJson">Export JSON</button>
+    </div>
+  </aside>
+
+  <section class="content">
+    <div class="breadcrumbs" id="breadcrumbs">/</div>
+
+    <div class="dropzone" id="dropzone">Drag & drop files here or use <strong>Upload File</strong>.</div>
+
+    <div style="height:12px"></div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="footer">
+      <div id="info">0 items</div>
+      <div>CD File Manager — Local only</div>
+    </div>
+  </section>
+</div>
+
+  </div>  <!-- hidden file input used for uploads -->  <input type="file" id="fileInput" multiple style="display:none" />  <!-- audio player (attempt autoplay) --><audio id="bootAudio" src="https://zhvan14.github.io/CDAudio/CD.mp3" autoplay playsinline></audio>
+
+  <!-- overlay shown if autoplay is blocked -->  <div id="playOverlay" class="play-overlay" style="display:none">
+    <div class="play-card">
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">CD File Manager</div>
+      <button id="enableAudio">Start</button>
+    </div>
+  </div>  <script>
+    (() => {
+      const STORAGE_KEY = 'cd_file_manager_v1';
+
+      // default sample filesystem
+      const defaultFS = {
+        idCounter: 6,
+        root: {
+          id: 1,
+          name: '/',
+          type: 'folder',
+          children: [
+            { id:2, name: 'Documents', type:'folder', children: [
+              { id:4, name: 'readme.txt', type:'file', mime:'text/plain', data: btoa('Welcome to CD File Manager!\nYou can upload files, create folders, and preview text and images.'), size: 123, created: Date.now() }
+            ] },
+            { id:3, name: 'Music', type:'folder', children: [] }
+          ]
+        }
+      };
+
+      // simple helpers
+      function loadFS(){
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if(!raw){ localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultFS)); return JSON.parse(JSON.stringify(defaultFS)); }
+        try{ return JSON.parse(raw); } catch(e){ localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultFS)); return JSON.parse(JSON.stringify(defaultFS)); }
+      }
+      function saveFS(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(fs)); }
+
+      let fs = loadFS();
+      let cwd = [fs.root]; // path stack
+
+      // DOM refs
+      const foldersEl = document.getElementById('folders');
+      const grid = document.getElementById('grid');
+      const breadcrumbs = document.getElementById('breadcrumbs');
+      const info = document.getElementById('info');
+
+      function escapeHtml(s=""){
+        return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c]);
+      }
+
+      function formatBytes(n){ if(!n && n!==0) return ''; if(n<1024) return n+' B'; if(n<1024*1024) return (n/1024).toFixed(1)+' KB'; return (n/1024/1024).toFixed(2)+' MB'; }
+
+      // convert base64 (no-dataurl) to Blob
+      function base64ToBlob(base64, mime){
+        try{
+          const byteChars = atob(base64 || '');
+          const byteNumbers = new Array(byteChars.length);
+          for(let i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
+          return new Blob([new Uint8Array(byteNumbers)], { type: mime || 'application/octet-stream' });
+        }catch(e){ console.warn('Failed to convert base64 to blob', e); return null; }
+      }
+
+      // render sidebar folders
+      function renderSidebar(){
+        foldersEl.innerHTML = '';
+        function walk(folder, depth=0){
+          const el = document.createElement('div');
+          el.className = 'folder';
+          el.style.paddingLeft = (8 + depth*12) + 'px';
+          el.textContent = folder.name;
+          el.addEventListener('click', ()=>{
+            // find path to this folder by id
+            const targetId = folder.id;
+            const stack = [];
+            function dfs(node){ if(node.id === targetId){ stack.push(node); return true; } if(node.type === 'folder'){
+              for(const c of node.children){ if(dfs(c)){ stack.push(node); return true; } }
+            } return false; }
+            dfs(fs.root);
+            if(stack.length) { cwd = stack.reverse(); render(); }
+          });
+          foldersEl.appendChild(el);
+          if(folder.type === 'folder'){
+            for(const c of folder.children.filter(x=>x.type === 'folder')) walk(c, depth+1);
+          }
+        }
+        walk(fs.root);
+      }
+
+      // render grid
+      function render(){
+        breadcrumbs.textContent = cwd.map(x=>x.name==='/'? '': x.name).filter(Boolean).join('/') || '/';
+        grid.innerHTML = '';
+        const cur = cwd[cwd.length-1];
+        const items = cur.children || [];
+        info.textContent = items.length + ' items';
+
+        for(const item of items){
+          const card = document.createElement('div'); card.className = 'card';
+
+          // build inner HTML safely
+          const top = document.createElement('div');
+          top.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <div>
+                <div class="name">${escapeHtml(item.name)}</div>
+                <div class="meta">${escapeHtml(item.type)}${item.type==='file'? ' • '+escapeHtml(formatBytes(item.size)): ''}</div>
+              </div>
+              <div>
+                <button data-id="${escapeHtml(item.id)}" class="openBtn">Open</button>
+              </div>
+            </div>
+          `;
+          card.appendChild(top);
+
+          const bottom = document.createElement('div');
+          const btns = document.createElement('div'); btns.style.display='flex'; btns.style.gap='6px';
+          const rename = document.createElement('button'); rename.textContent='Rename'; rename.addEventListener('click', ()=>renameItem(item));
+          const del = document.createElement('button'); del.textContent='Delete'; del.addEventListener('click', ()=>{ if(confirm('Delete "'+item.name+'"?')) removeItem(item.id); });
+          const dl = document.createElement('button'); dl.textContent='Download'; dl.addEventListener('click', ()=>{ if(item.type==='file') downloadFile(item); else downloadFolder(item); });
+          btns.appendChild(rename); btns.appendChild(del); btns.appendChild(dl);
+          bottom.appendChild(btns);
+          card.appendChild(bottom);
+
+          grid.appendChild(card);
+
+          // open button wiring
+          const openBtn = card.querySelector('.openBtn');
+          if(openBtn) openBtn.addEventListener('click', ()=>{ if(item.type === 'folder'){ cwd.push(item); render(); } else { previewFile(item); } });
+        }
+      }
+
+      // filesystem operations
+      function addFolder(name){ const id = ++fs.idCounter; const folder = { id, name, type:'folder', children:[] }; cwd[cwd.length-1].children.push(folder); saveFS(); render(); }
+      function addFile(name, mime, base64data, size){ const id = ++fs.idCounter; const file = { id, name, type:'file', mime, data: base64data, size, created: Date.now() }; cwd[cwd.length-1].children.push(file); saveFS(); render(); }
+      function renameItem(item){ const n = prompt('New name', item.name); if(n && n.trim()){ item.name = n.trim(); saveFS(); render(); } }
+      function removeItem(id){
+        function removeFrom(folder){
+          const idx = folder.children.findIndex(x=>x.id===id);
+          if(idx >= 0){ folder.children.splice(idx,1); return true; }
+          for(const c of folder.children) if(c.type === 'folder' && removeFrom(c)) return true;
+          return false;
+        }
+        removeFrom(fs.root); saveFS(); render();
+      }
+
+      // downloads
+      function downloadFile(item){
+        try{
+          const blob = base64ToBlob(item.data, item.mime || 'application/octet-stream');
+          if(!blob) throw new Error('Blob creation failed');
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = item.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 2000);
+        }catch(e){ console.error('Download failed', e); alert('Download failed.'); }
+      }
+
+      function downloadFolder(folder){ const data = JSON.stringify(folder, null, 2); const blob = new Blob([data],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=folder.name+'.json'; document.body.appendChild(a); a.click(); a.remove(); }
+
+      // preview file using blob URLs (avoid writing into new window.document)
+      function previewFile(item){
+        if(!item || item.type !== 'file') return;
+        const mime = item.mime || 'application/octet-stream';
+
+        // text preview as nice HTML page
+        const isText = (mime && mime.startsWith('text/')) || /\.txt$/i.test(item.name);
+
+        if(isText){
+          try{
+            const txt = atob(item.data || '');
+            const html = `<!doctype html><meta charset="utf-8"><title>${escapeHtml(item.name)}</title><style>body{background:#061221;color:#e6eef8;font-family:monospace;padding:16px;white-space:pre-wrap}</style><pre>${escapeHtml(txt)}</pre>`;const blob = new Blob([html], {type:'text/html'});
+        const url = URL.createObjectURL(blob);
+        const w = window.open(url, '_blank');
+        if(!w) { alert('Popup blocked. Downloading file instead.'); downloadFile(item); }
+        setTimeout(()=>URL.revokeObjectURL(url), 60000);
+      }catch(e){ console.error(e); alert('Preview failed — downloading file.'); downloadFile(item); }
+      return;
+    }
+
+    // for images/audio/other: open the blob URL directly
+    const blob = base64ToBlob(item.data, mime);
+    if(!blob){ alert('Preview not available.'); return; }
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, '_blank');
+    if(!w){ alert('Popup blocked — downloading instead.'); downloadFile(item); }
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+  }
+
+  // file input
+  const fileInput = document.getElementById('fileInput');
+  document.getElementById('uploadBtn').addEventListener('click', ()=> fileInput.click());
+  fileInput.addEventListener('change', async (e)=>{ const files = Array.from(e.target.files || []); for(const f of files){ const base64 = await readFileAsBase64(f); addFile(f.name, f.type||'application/octet-stream', base64.split(',')[1], f.size); } fileInput.value=''; });
+
+  function readFileAsBase64(file){
+    return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+  }
+
+  // drag & drop
+  const dropzone = document.getElementById('dropzone');
+  ['dragenter','dragover'].forEach(e=>dropzone.addEventListener(e, ev=>{ ev.preventDefault(); dropzone.style.borderColor='rgba(255,255,255,0.12)'; }));
+  ['dragleave','drop'].forEach(e=>dropzone.addEventListener(e, ev=>{ ev.preventDefault(); dropzone.style.borderColor='rgba(255,255,255,0.03)'; }));
+  dropzone.addEventListener('drop', async (ev)=>{ const files = Array.from(ev.dataTransfer.files || []); for(const f of files){ const base64 = await readFileAsBase64(f); addFile(f.name, f.type||'application/octet-stream', base64.split(',')[1], f.size); } });
+
+  // other controls
+  document.getElementById('newFolder').addEventListener('click', ()=>{ const n = prompt('Folder name','New Folder'); if(n) addFolder(n); });
+
+  document.getElementById('clearAll').addEventListener('click', ()=>{ if(confirm('Clear all data and reset filesystem?')){ fs = JSON.parse(JSON.stringify(defaultFS)); saveFS(); cwd = [fs.root]; render(); } });
+
+  document.getElementById('exportJson').addEventListener('click', ()=>{ const data = JSON.stringify(fs, null, 2); const blob = new Blob([data],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cd-fs.json'; document.body.appendChild(a); a.click(); a.remove(); });
+
+  document.getElementById('importJson').addEventListener('click', ()=>{ const inp = document.createElement('input'); inp.type='file'; inp.accept='application/json'; inp.onchange = e=>{ const f = e.target.files[0]; const r = new FileReader(); r.onload = ()=>{ try{ const parsed = JSON.parse(r.result); if(parsed && parsed.root) { fs = parsed; saveFS(); cwd=[fs.root]; render(); alert('Imported.'); } else alert('JSON did not contain expected structure.'); }catch(err){ alert('Invalid JSON'); } }; r.readAsText(f); }; inp.click(); });
+
+  document.getElementById('downloadAll').addEventListener('click', ()=>{ const data = JSON.stringify(fs, null, 2); const blob = new Blob([data],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cd-fs-full.json'; document.body.appendChild(a); a.click(); a.remove(); });
+
+  // search
+  document.getElementById('search').addEventListener('input', (e)=>{ const q = e.target.value.toLowerCase().trim(); const cur = cwd[cwd.length-1]; grid.innerHTML = ''; const all = collectAll(cur);
+    const filtered = all.filter(x=>x.name.toLowerCase().includes(q)); for(const item of filtered){ const el = document.createElement('div'); el.className = 'card'; el.innerHTML = `<div><div class=\"name\">${escapeHtml(item.name)}</div><div class=\"meta\">${escapeHtml(item.type)}</div></div>`; grid.appendChild(el); }
+  });
+
+  function collectAll(folder){ let out = []; for(const c of folder.children){ out.push(c); if(c.type === 'folder') out = out.concat(collectAll(c)); } return out; }
+
+  // diagnostics: small internal tests to catch obvious failures
+  function runDiagnostics(){
+    const startCount = collectAll(fs.root).length;
+    // create temp folder and file, then remove
+    const prevId = fs.idCounter;
+    // operate in root for tests
+    cwd = [fs.root];
+    addFolder('__test_diag_folder');
+    const tf = fs.root.children.find(x=>x.name==='__test_diag_folder');
+    if(!tf) return alert('Diagnostics failed to create folder');
+    cwd = [fs.root, tf];
+    addFile('diag.txt','text/plain', btoa('diagnostics ok'), 13);
+    const createdFile = tf.children.find(x=>x.name==='diag.txt');
+    if(!createdFile) return alert('Diagnostics failed to create file');
+    // cleanup
+    removeItem(createdFile.id);
+    // remove test folder
+    cwd = [fs.root];
+    removeItem(tf.id);
+    fs.idCounter = prevId; saveFS(); renderSidebar(); render();
+    alert('Diagnostics passed — basic create/rename/delete flow OK.');
+  }
+
+  document.getElementById('diag').addEventListener('click', runDiagnostics);
+
+  // audio handling (autoplay may be blocked)
+  const audio = document.getElementById('bootAudio');
+  const overlay = document.getElementById('playOverlay');
+  function tryPlay(){
+    if(!audio) return;
+    audio.play().then(()=>{/*playing*/}).catch(()=>{ overlay.style.display = 'flex'; });
+  }
+  document.getElementById('enableAudio').addEventListener('click', ()=>{ audio.play().catch(()=>{}); overlay.style.display='none'; });
+  window.addEventListener('load', ()=>{ setTimeout(tryPlay, 250); });
+
+  // initial render
+  renderSidebar(); render();
+
+  // expose a small api for debugging in console
+  window.CDFileManager = { fs, render, renderSidebar, addFile, addFolder, downloadFile };
+
+})();
+
+  </script>
+</body>
+</html>
